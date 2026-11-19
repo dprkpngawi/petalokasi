@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Keamanan: hanya skrip dari situs ini sendiri yang boleh jalan; koneksi keluar dibatasi ke layanan peta & Google Apps Script -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com; connect-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com https://s3-us-west-2.amazonaws.com https://overpass-api.de https://overpass.kumi.systems https://maps.mail.ru https://script.google.com https://script.googleusercontent.com; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<!-- Keamanan: hanya skrip dari situs ini sendiri yang boleh jalan; koneksi keluar dibatasi ke layanan peta -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com; connect-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com https://s3-us-west-2.amazonaws.com https://overpass-api.de https://overpass.kumi.systems https://maps.mail.ru; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Peta Lokasi – DPRKP Kabupaten Ngawi</title>
 <link rel="icon" href="assets/logo-ngawi.png">
@@ -29,12 +29,9 @@
     <button id="btn-print" class="primary" title="Cetak / Simpan sebagai PDF vektor lewat dialog cetak">🖨️ Cetak</button>
     <button id="btn-png" title="Unduh gambar PNG">🖼️ PNG</button>
     <button id="btn-jpg" title="Unduh gambar JPG (ukuran file lebih kecil)">🖼️ JPG</button>
-    <button id="btn-pdfimg" title="Unduh PDF (gambar resolusi tinggi) – bisa otomatis disimpan ke Drive">📄 PDF</button>
+    <button id="btn-pdfimg" title="Unduh PDF (gambar resolusi tinggi)">📄 PDF</button>
   </div>
-  <div class="drive-box">
-    <p class="hint" id="drive-status"></p>
-    <a id="drive-link" target="_blank" rel="noopener noreferrer" hidden>Buka folder Drive ↗</a>
-  </div>
+
   <div class="sb-actions" style="padding-top:0">
     <label class="exres">Resolusi gambar
       <select id="export-res">
@@ -433,7 +430,6 @@ Survey Lapang, 2026</textarea>
 <script src="lib/html-to-image.js"></script>
 <script src="lib/xlsx.full.min.js"></script>
 <script src="lib/jspdf.umd.min.js"></script>
-<script src="js/config.js"></script>
 <script src="assets/logo-ngawi.js"></script>
 <script src="data/jalan.js"></script>
 <script src="data/sungai.js"></script>
