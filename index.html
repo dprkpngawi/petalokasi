@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Keamanan: hanya skrip dari situs ini sendiri yang boleh jalan; koneksi keluar dibatasi ke layanan peta & Google Apps Script -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com; connect-src 'self' data: blob: https://*.arcgis.com https://*.arcgisonline.com https://s3-us-west-2.amazonaws.com https://overpass-api.de https://overpass.kumi.systems https://maps.mail.ru https://script.google.com https://script.googleusercontent.com; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Peta Lokasi – DPRKP Kabupaten Ngawi</title>
+<link rel="icon" href="assets/logo-ngawi.png">
+<link rel="stylesheet" href="lib/leaflet/leaflet.css">
+<link rel="stylesheet" href="lib/leaflet-geoman.css">
+<link rel="stylesheet" href="css/style.css">
+<style id="page-size-style">@page { size: 330mm 215mm; margin: 0; }</style>
+</head>
+<body>
+
+<!-- ============ SIDEBAR / PANEL KONTROL ============ -->
+<aside id="sidebar" class="no-print">
+  <header class="sb-head">
+    <img src="assets/logo-ngawi.png" alt="">
+    <div>
+      <strong>Pembuat Peta Lokasi</strong>
+      <small>DPRKP Kabupaten Ngawi</small>
+    </div>
+  </header>
+
+  <div class="sb-actions">
+    <button id="btn-print" class="primary" title="Cetak / Simpan sebagai PDF vektor lewat dialog cetak">🖨️ Cetak</button>
+    <button id="btn-png" title="Unduh gambar PNG">🖼️ PNG</button>
+    <button id="btn-jpg" title="Unduh gambar JPG (ukuran file lebih kecil)">🖼️ JPG</button>
+    <button id="btn-pdfimg" title="Unduh PDF (gambar resolusi tinggi) – bisa otomatis disimpan ke Drive">📄 PDF</button>
+  </div>
+  <div class="drive-box">
+    <label class="chk"><input type="checkbox" id="drive-auto"> ☁️ Simpan otomatis ke Google Drive</label>
+    <a id="drive-link" target="_blank" rel="noopener noreferrer" hidden>Buka folder Drive ↗</a>
+    <p class="hint" id="drive-status"></p>
+  </div>
+  <div class="sb-actions" style="padding-top:0">
+    <label class="exres">Resolusi gambar
+      <select id="export-res">
+        <option value="96">Layar · 96 dpi</option>
+        <option value="150">Standar · 150 dpi</option>
+        <option value="200" selected>Jelas · 200 dpi</option>
+        <option value="300">Cetak · 300 dpi</option>
+        <option value="400">Sangat tajam · 400 dpi (±4K)</option>
+        <option value="custom">Kustom (lebar piksel)…</option>
+      </select>
+    </label>
+    <input id="export-px" type="number" min="800" max="12000" step="100" value="3000" hidden title="Lebar gambar (piksel)">
+  </div>
+
+  <!-- 1. LAYER (paling atas) -->
+  <details open>
+    <summary>1. Upload &amp; Layer Lokasi (KML / SHP / Excel)</summary>
+    <label class="upload">
+      <input type="file" id="file-input" multiple accept=".kml,.kmz,.zip,.shp,.dbf,.prj,.cpg,.shx,.geojson,.json,.xlsx,.xls,.csv">
+      <span>📂 Upload KML / KMZ / SHP (.zip) / GeoJSON</span>
+    </label>
+    <p class="hint">SHP: upload file .zip, atau pilih sekaligus .shp + .dbf + .prj.</p>
+    <label class="chk"><input type="checkbox" id="auto-labels" checked> Otomatis buat label lokasi &amp; koordinat saat upload</label>
+    <label class="upload small">
+      <input type="file" id="xy-input" accept=".xlsx,.xls,.csv,.ods">
+      <span>📊 Upload titik XY dari Excel / CSV</span>
+    </label>
+    <button id="btn-add-perum" class="wide primary">📍 Tambah lokasi (gambar di peta)</button>
+    <div class="row">
+      <button id="btn-new-layer" class="grow">➕ Layer kosong</button>
+    </div>
+    <button id="btn-transparent" class="wide">🎨 Gaya transparan (citra terlihat, batas tegas)</button>
+    <div id="layer-list"></div>
+  </details>
+
+  <!-- 2. KERTAS -->
+  <details open>
+    <summary>2. Kertas &amp; Tampilan</summary>
+    <label>Ukuran kertas
+      <select id="paper-size">
+        <option value="F4" selected>F4 (215 × 330 mm)</option>
+        <option value="A4">A4 (210 × 297 mm)</option>
+        <option value="A3">A3 (297 × 420 mm)</option>
+      </select>
+    </label>
+    <div class="seg" id="orientation">
+      <button data-v="landscape" class="on">Landscape</button>
+      <button data-v="portrait">Portrait</button>
+    </div>
+    <div class="imgbox">
+      <b>🛰️ Citra Satelit: Esri World Imagery 2026</b>
+      <span id="imagery-release">Memuat rilis citra 2026 terbaru…</span>
+    </div>
+    <label>Kualitas citra (cetak / ekspor)
+      <select id="img-quality">
+        <option value="auto" selected>Otomatis – detail tertinggi yang tersedia (HD/4K)</option>
+        <option value="4">Ultra 4× (4K, lebih lambat)</option>
+        <option value="2">HD 2×</option>
+        <option value="1">Normal 1×</option>
+      </select>
+    </label>
+    <p class="hint" id="imagery-quality"></p>
+    <p class="hint" id="imagery-status"></p>
+    <p class="hint" id="imagery-date"></p>
+    <label class="chk"><input type="checkbox" id="citra-auto" checked> Tulis sumber &amp; tanggal citra di Sumber Data</label>
+  </details>
+
+  <!-- GRID -->
+  <details>
+    <summary>Grid Koordinat (gaya ArcGIS)</summary>
+    <label class="chk"><input type="checkbox" id="show-grid" checked> Tampilkan grid koordinat</label>
+    <label>Jenis grid
+      <select id="grid-style">
+        <option value="lines" selected>Garis grid penuh (graticule)</option>
+        <option value="cross">Tanda silang (+) di perpotongan</option>
+        <option value="ticks">Tick di tepi saja</option>
+      </select>
+    </label>
+    <label>Tampilkan label koordinat di sisi:</label>
+    <div class="sides" id="grid-sides">
+      <label class="chk"><input type="checkbox" data-side="top" checked> Atas</label>
+      <label class="chk"><input type="checkbox" data-side="bottom" checked> Bawah</label>
+      <label class="chk"><input type="checkbox" data-side="left" checked> Kiri</label>
+      <label class="chk"><input type="checkbox" data-side="right" checked> Kanan</label>
+    </div>
+    <label>Format koordinat
+      <select id="grid-format">
+        <option value="dms" selected>Derajat-Menit-Detik (111°13'30"E)</option>
+        <option value="dm">Derajat-Menit (111°13.50'E)</option>
+        <option value="dd">Derajat desimal (111.2250°)</option>
+      </select>
+    </label>
+    <label>Interval grid
+      <select id="grid-interval">
+        <option value="auto" selected>Otomatis (ikut skala)</option>
+        <option value="2">2 detik</option><option value="5">5 detik</option>
+        <option value="10">10 detik</option><option value="15">15 detik</option>
+        <option value="30">30 detik</option><option value="60">1 menit</option>
+        <option value="120">2 menit</option><option value="300">5 menit</option>
+        <option value="600">10 menit</option>
+      </select>
+    </label>
+    <label class="chk"><input type="checkbox" id="grid-lat-vertical" checked> Label lintang tegak (kiri/kanan)</label>
+    <div class="grid2b">
+      <label>Warna garis<input type="color" id="grid-color" value="#ffffff"></label>
+      <label>Tebal<input type="range" id="grid-width" min="0.2" max="2" step="0.1" value="0.6"></label>
+    </div>
+  </details>
+
+  <!-- 3. SKALA -->
+  <details open>
+    <summary>3. Skala &amp; Posisi</summary>
+    <div class="row">
+      <label class="grow">Skala 1 :
+        <input id="scale-input" type="number" min="100" step="100" value="2500">
+      </label>
+      <button id="scale-down" title="Perbesar (skala lebih detail)">＋</button>
+      <button id="scale-up" title="Perkecil">－</button>
+    </div>
+    <div class="presets" id="scale-presets"></div>
+    <label class="chk"><input type="checkbox" id="free-scale"> Skala bebas (scroll zoom halus)</label>
+    <button id="btn-fit" class="wide">🎯 Zoom ke semua layer lokasi</button>
+    <label>Gaya panah utara
+      <select id="north-style">
+        <option value="arcgis" selected>Panah ArcGIS hitam-putih</option>
+        <option value="simple">Panah hitam sederhana</option>
+        <option value="needle">Jarum kompas</option>
+        <option value="circle">Panah dalam lingkaran</option>
+        <option value="line">Panah garis tipis</option>
+        <option value="triangle">Segitiga "U"</option>
+        <option value="arrowN">Anak panah blok "N"</option>
+        <option value="star">Mata angin 4 arah (bintang)</option>
+        <option value="rose">Mata angin 8 arah (U-S-T-B)</option>
+      </select>
+    </label>
+    <label>Ukuran panah utara <input type="range" id="north-size" min="6" max="16" step="0.5" value="9"></label>
+    <label>Gaya skala batang
+      <select id="scale-bar-style">
+        <option value="alternating" selected>Hitam-putih bergantian</option>
+        <option value="double">Dua baris bersilang</option>
+        <option value="hollow">Batang kosong bersekat</option>
+        <option value="single">Batang hitam utuh</option>
+        <option value="line">Garis dengan tick</option>
+        <option value="stepped">Garis bertangga</option>
+        <option value="none">Tanpa skala batang</option>
+      </select>
+    </label>
+    <div class="grid2b">
+      <label>Pembagian
+        <select id="scale-divs">
+          <option value="arcgis" selected>0 – ⅛ – ¼ – ½ – ¾ – 1</option>
+          <option value="4">4 bagian sama</option>
+          <option value="5">5 bagian sama</option>
+          <option value="3">3 bagian sama</option>
+          <option value="2">2 bagian</option>
+        </select>
+      </label>
+      <label>Satuan
+        <select id="scale-unit">
+          <option value="auto" selected>Otomatis (m/km)</option>
+          <option value="m">Meter</option>
+          <option value="km">Kilometer</option>
+        </select>
+      </label>
+    </div>
+    <label class="chk"><input type="checkbox" id="scale-unit-short"> Satuan singkat (m / km)</label>
+    <label class="chk"><input type="checkbox" id="scale-dec-comma"> Desimal pakai koma (12,5)</label>
+    <label>Format teks skala
+      <select id="scale-text-style">
+        <option value="en" selected>1:2,000</option>
+        <option value="id">1:2.000</option>
+        <option value="skala">Skala 1:2.000</option>
+        <option value="skala-en">Skala 1:2,000</option>
+        <option value="cm">1 cm = 20 m</option>
+        <option value="both">1:2.000 (1 cm = 20 m)</option>
+        <option value="none">Tanpa teks skala</option>
+      </select>
+    </label>
+    <p class="hint"><b>Zoom:</b> tombol ＋/－ di kanan atas peta, scroll mouse, atau tombol keyboard + / −.</p>
+    <p class="hint">Geser peta dengan drag. Grid, skala batang, legenda, dan inset menyesuaikan otomatis. Skala dikunci pada angka bulat agar skala cetak akurat.</p>
+  </details>
+
+  <!-- 4. LABEL -->
+  <details open>
+    <summary>4. Label &amp; Koordinat</summary>
+    <div class="row">
+      <button id="btn-add-label" class="grow">🏷️ Tambah label (klik peta)</button>
+      <button id="btn-add-coord" class="grow">📍 Tambah koordinat</button>
+    </div>
+    <p class="hint">Atau pakai ikon 📍 / 🏷️ di kiri atas peta. Drag <b>titik kuning</b>: label ikut bergeser dan angka koordinat berubah otomatis. Drag <b>teks</b> untuk memindah label saja. <b>Klik 2×</b> teks label untuk mengedit langsung di peta, dan <b>klik 2×</b> poligon untuk mengedit bentuknya.</p>
+    <div id="label-list"></div>
+  </details>
+
+  <!-- 5. TEKS -->
+  <details open>
+    <summary>5. Teks Kop, Judul &amp; Sumber</summary>
+    <label>Instansi
+      <textarea id="txt-instansi" rows="3">DINAS PERUMAHAN RAKYAT
+DAN KAWASAN PERMUKIMAN
+KABUPATEN NGAWI</textarea>
+    </label>
+    <label>Tema / jenis lokasi peta
+      <input id="tema" type="text" list="tema-list" value="Perumahan" placeholder="mis. Perumahan, PSU, RTLH…">
+      <datalist id="tema-list">
+        <option>Perumahan</option><option>PSU Perumahan</option><option>RTLH</option><option>Kawasan Permukiman</option>
+        <option>Kegiatan</option><option>Pembangunan</option><option>Bangunan</option><option>Tanah / Aset</option>
+        <option>Jalan Lingkungan</option><option>Drainase</option><option>Fasilitas Umum</option><option>Ruang Terbuka Hijau</option>
+      </datalist>
+    </label>
+    <p class="hint">Tema dipakai di judul ("PETA LOKASI [TEMA]"), grup legenda, dan nama layer baru. Kosongkan untuk judul "PETA LOKASI" saja.</p>
+    <label>Judul peta
+      <textarea id="txt-judul" rows="2">PETA LOKASI PERUMAHAN
+NAMA PERUMAHAN</textarea>
+    </label>
+    <label class="chk auto-chk"><input type="checkbox" id="auto-judul" checked> Otomatis dari nama layer (yang tampak di peta)</label>
+    <label>Keterangan lokasi
+      <textarea id="txt-lokasi" rows="2">Desa …
+Kecamatan …, Kabupaten Ngawi</textarea>
+    </label>
+    <label class="chk auto-chk"><input type="checkbox" id="auto-lokasi" checked> Otomatis dari desa/kecamatan lokasi (ikut saat peta digeser)</label>
+    <p class="hint"><b>Tip:</b> semua teks di lembar peta (kop, judul, lokasi, legenda, sumber, inset) bisa <b>diklik 2×</b> untuk diedit langsung. Perubahan otomatis tersinkron ke sidebar, legenda, dan label.</p>
+    <p class="hint">Mengetik di kotak judul/lokasi mematikan mode otomatis untuk kotak itu. Centang lagi untuk kembali otomatis.</p>
+    <label>Sumber data
+      <textarea id="txt-sumber" rows="3">Sumber Data:
+Survey Lapang, 2026</textarea>
+    </label>
+    <label>Logo
+      <input type="file" id="logo-input" accept="image/*">
+    </label>
+    <button id="btn-logo-reset" class="wide">↺ Kembalikan logo Kabupaten Ngawi</button>
+    <label>Judul inset
+      <input id="txt-inset" type="text" value="INSET">
+    </label>
+    <label>Keterangan inset
+      <input id="txt-inset-sub" type="text" value="Kabupaten Ngawi">
+    </label>
+    <label>Mode inset
+      <select id="inset-mode">
+        <option value="kab" selected>Seluruh Kabupaten Ngawi + kotak merah desa lokasi</option>
+        <option value="follow">Mengikuti peta (zoom &amp; geser otomatis)</option>
+      </select>
+    </label>
+    <label>Ukuran kotak cakupan di inset (% lebar inset) <input type="range" id="inset-zoom" min="5" max="60" step="5" value="15"></label>
+    <label class="chk"><input type="checkbox" id="inset-auto-desa" checked> Tulis nama desa lokasi di inset</label>
+    <label class="chk"><input type="checkbox" id="inset-legend"> Keterangan inset di legenda</label>
+  </details>
+
+  <!-- 6. LAYER REFERENSI -->
+  <details open>
+    <summary>6. Jalan, Sungai &amp; Batas Administrasi (selalu tampil)</summary>
+    <p class="hint">Jalan dan sungai Kabupaten Ngawi otomatis tampil di setiap peta. Hilangkan centang jika tidak ingin ditampilkan. Legenda hanya memuat kelas yang tampak di dalam bingkai peta.</p>
+    <button id="btn-ref-std" class="wide">📘 Kembalikan simbol ke standar Permen ATR/BPN 14/2021</button>
+    <div id="ref-list"></div>
+
+  </details>
+
+  <!-- 7. PROYEK -->
+  <details>
+    <summary>7. Simpan / Buka Proyek</summary>
+    <p class="hint">Pekerjaan tersimpan otomatis di browser ini. Simpan file proyek (.json) agar bisa dibuka lagi di komputer lain.</p>
+    <div class="row">
+      <button id="btn-save-project" class="grow">💾 Simpan proyek</button>
+      <label class="upload grow small">
+        <input type="file" id="project-input" accept=".json">
+        <span>📂 Buka proyek</span>
+      </label>
+    </div>
+    <button id="btn-reset" class="wide danger">🗑️ Mulai peta baru (hapus semua)</button>
+  </details>
+
+  <footer class="sb-foot">Saat mencetak: pilih <b>Simpan sebagai PDF</b>, Margin <b>Tidak ada</b>, centang <b>Grafik latar belakang</b>.</footer>
+</aside>
+
+<!-- ============ AREA KERTAS ============ -->
+<main id="workspace">
+  <div class="zoom-bar no-print">
+    <button id="pv-out">－</button>
+    <span id="pv-val">100%</span>
+    <button id="pv-in">＋</button>
+    <button id="pv-fit">Pas layar</button>
+    <div class="desa-search">
+      <input id="desa-q" type="search" placeholder="🔍 Cari desa / kelurahan / kecamatan…" autocomplete="off">
+      <div id="desa-res" hidden></div>
+    </div>
+  </div>
+  <div id="page-holder">
+    <div id="page" class="page landscape">
+      <div class="map-area">
+        <div class="map-frame">
+          <div id="map"></div>
+          <svg id="grid-svg"></svg>
+        </div>
+      </div>
+
+      <div class="info-panel">
+        <div class="box box-kop">
+          <img id="logo-img" src="assets/logo-ngawi.png" alt="Logo">
+          <div id="out-instansi" class="kop-text"></div>
+        </div>
+        <div class="box box-judul">
+          <div id="out-judul" class="judul"></div>
+          <div id="out-lokasi" class="lokasi"></div>
+        </div>
+        <div class="box box-skala">
+          <div class="north" id="north"></div>
+          <div id="out-scale" class="scale-text">1:2,500</div>
+          <svg id="scalebar"></svg>
+        </div>
+        <div class="box box-legenda">
+          <div class="legend-title">Legenda</div>
+          <div id="legend"></div>
+        </div>
+        <div class="box box-sumber">
+          <div id="out-sumber"></div>
+          <div id="out-citra"></div>
+        </div>
+        <div class="box box-inset">
+          <div class="inset-title"><span id="out-inset">INSET</span><small class="inset-line"><span id="out-inset-desa" class="inset-desa"></span><span id="out-inset-sub">Kabupaten Ngawi</span></small></div>
+          <div class="inset-map"><div id="inset"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="no-print"></div>
+
+<!-- toolbar format teks -->
+<div id="fmt-bar" class="fmt-bar no-print" hidden>
+  <button data-f="b" title="Tebal (Bold)"><b>B</b></button>
+  <button data-f="i" title="Miring (Italic)"><i>I</i></button>
+  <button data-f="u" title="Garis bawah"><u>U</u></button>
+  <span class="sep"></span>
+  <button data-f="size-" title="Perkecil huruf">A−</button>
+  <span id="fmt-size">10 pt</span>
+  <button data-f="size+" title="Perbesar huruf">A+</button>
+  <span class="sep"></span>
+  <button data-f="al-left" title="Rata kiri">⯇</button>
+  <button data-f="al-center" title="Rata tengah">≡</button>
+  <button data-f="al-right" title="Rata kanan">⯈</button>
+  <span class="sep"></span>
+  <select id="fmt-font" title="Jenis huruf">
+    <option value="">Arial</option>
+    <option value="'Times New Roman', serif">Times New Roman</option>
+    <option value="Calibri, 'Segoe UI', sans-serif">Calibri</option>
+    <option value="Tahoma, sans-serif">Tahoma</option>
+    <option value="'Bookman Old Style', serif">Bookman</option>
+    <option value="'Courier New', monospace">Courier New</option>
+  </select>
+  <input type="color" id="fmt-color" title="Warna lain…">
+  <div id="fmt-sw" class="swatches fmt-sw"></div>
+  <button data-f="reset" title="Kembalikan gaya bawaan">↺</button>
+</div>
+
+<!-- dialog impor XY Excel -->
+<div id="xy-modal" class="modal no-print" hidden>
+  <div class="modal-box">
+    <h3>📊 Impor titik XY dari Excel / CSV</h3>
+    <div class="mgrid">
+      <label>Sheet <select id="xy-sheet"></select></label>
+      <label>Nama layer <input id="xy-name" type="text"></label>
+      <label>Kolom X (Bujur / Easting) <select id="xy-x"></select></label>
+      <label>Kolom Y (Lintang / Northing) <select id="xy-y"></select></label>
+      <label>Sistem koordinat
+        <select id="xy-crs">
+          <option value="wgs84">Geografis WGS84 – desimal / DMS (X=bujur, Y=lintang)</option>
+          <option value="wgs84-swap">Geografis WGS84 – X=lintang, Y=bujur</option>
+          <option value="utm49s">UTM Zona 49S (Ngawi)</option>
+          <option value="utm48s">UTM Zona 48S</option>
+          <option value="utm50s">UTM Zona 50S</option>
+        </select>
+      </label>
+      <label>Kolom nama titik (opsional) <select id="xy-label"></select></label>
+      <label>Jadikan
+        <select id="xy-geom">
+          <option value="point">Titik (point)</option>
+          <option value="line">Garis – sambung titik sesuai urutan baris</option>
+          <option value="polygon">Poligon – titik sebagai sudut batas (urut)</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint" id="xy-info"></p>
+    <div id="xy-preview"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button id="xy-cancel">Batal</button>
+      <button id="xy-ok" class="primary">Tambahkan ke peta</button>
+    </div>
+  </div>
+</div>
+
+<script src="lib/leaflet/leaflet.js"></script>
+<script src="lib/leaflet-geoman.min.js"></script>
+<script src="lib/shp.min.js"></script>
+<script src="lib/togeojson.umd.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/html-to-image.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/jspdf.umd.min.js"></script>
+<script src="js/config.js"></script>
+<script src="assets/logo-ngawi.js"></script>
+<script src="data/jalan.js"></script>
+<script src="data/sungai.js"></script>
+<script src="data/batas_desa.js"></script>
+<script src="data/batas_kabupaten.js"></script>
+<script src="data/batas_admin.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
