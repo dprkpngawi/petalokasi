@@ -153,6 +153,8 @@ https://drive.google.com/drive/folders/1p5t_D-r2YOCYQfmiblRFEaYZQ3XqGKaW
 
 Aplikasi web ini statis, jadi penyimpanan ke Drive memakai **Google Apps Script** milik akun dinas sebagai perantara. File `apps-script/Code.gs` sudah disiapkan.
 
+**Cara termudah:** di aplikasi, klik **🔗 Hubungkan Google Drive** di bawah tombol ekspor. Dialognya berisi langkah-langkah, tombol salin kode Apps Script, dan kotak untuk menempel *Web app URL*, lalu **Tes & simpan**. URL tersimpan di browser tersebut. Agar berlaku untuk semua komputer tanpa menghubungkan satu per satu, isi juga `driveUploadUrl` di `js/config.js` (langkah 5 di bawah).
+
 1. Login dengan akun Google **pemilik folder** di atas, lalu buka https://script.google.com → **New project**.
 2. Hapus isi editor, tempel seluruh isi `apps-script/Code.gs`, lalu simpan (Ctrl+S). Beri nama proyek, misalnya "Upload Peta Lokasi".
 3. Klik **⚙ Project Settings** → bagian **Script Properties** → **Add script property**:

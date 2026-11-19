@@ -100,7 +100,7 @@ const DEFAULT_STATE = () => ({
   freeScale: false, northStyle: 'arcgis', northSize: 9,
   scaleBarStyle: 'alternating', scaleDivs: 'arcgis', scaleUnit: 'auto', scaleUnitShort: false, scaleDecComma: false, scaleTextStyle: 'en',
   insetAutoDesa: true, insetLegend: false, citraAuto: true,
-  insetMode: 'kab', insetBoxFrac: 0.15, autoLabels: true, autoJudul: true, autoLokasi: true,
+  insetMode: 'kab', insetBoxFrac: 0.15, autoLabels: true, autoJudul: true, autoLokasi: true, driveAuto: true,
   tema: 'Perumahan',
   textStyle: {},
   jalanEdits: { removed: [], added: [], reclass: {} },
@@ -2617,7 +2617,10 @@ async function exportImage(fmt, reloadTiles = false) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 8000);
     toast(`${fmt.toUpperCase()} diunduh (${cv.width} × ${cv.height} px).`, 4000);
-    if (driveEnabled() && $('#drive-auto').checked) uploadToDrive(blob, name, fmt);
+    if ($('#drive-auto').checked) {
+      if (driveEnabled()) uploadToDrive(blob, name, fmt);
+      else { R.pendingDrive = { blob, name, fmt }; openDriveSetup(); toast('File sudah terunduh. Hubungkan Google Drive sekali agar ekspor berikutnya otomatis tersimpan ke Drive.', 7000); }
+    }
   } catch (e) {
     console.error(e);
     const msg = e && e.message ? e.message : (e && e.type ? 'ada gambar yang tidak bisa dibaca' : String(e));
@@ -2632,7 +2635,13 @@ async function exportImage(fmt, reloadTiles = false) {
    cocok dengan PIN yang disimpan di Script Properties Apps Script. Folder tujuan ditetapkan
    di sisi server (Apps Script), bukan dari browser. */
 const CFG = window.PETA_CONFIG || {};
-function driveEnabled() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(CFG.driveUploadUrl || ''); }
+const DRIVE_URL_RE = /^https:\/\/script\.google\.com\/(a\/macros\/[\w.-]+\/|macros\/)s\/[\w-]+\/exec$/;
+/* URL Web App: dari config.js (berlaku untuk semua pengguna) atau diisi lewat tombol "Hubungkan" (tersimpan di browser ini) */
+function driveUrl() {
+  if (DRIVE_URL_RE.test(CFG.driveUploadUrl || '')) return CFG.driveUploadUrl;
+  try { const u = localStorage.getItem('petaDriveUrl') || ''; return DRIVE_URL_RE.test(u) ? u : ''; } catch (e) { return ''; }
+}
+function driveEnabled() { return !!driveUrl(); }
 function askPin(again) {
   const p = prompt((again ? 'PIN salah. ' : '') + 'Masukkan PIN upload Google Drive DPRKP (disimpan hanya selama tab ini terbuka):');
   if (p) sessionStorage.setItem('petaDrivePin', p.trim());
@@ -2646,7 +2655,7 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
   setDriveStatus('⏳ Mengunggah ke Google Drive…');
   try {
     const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
-    const res = await fetch(CFG.driveUploadUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    const res = await fetch(driveUrl(), { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ pin, name, mime, data: b64 }) });
     const j = await res.json();
     if (j.ok) { setDriveStatus(`✔ Tersimpan di Drive: ${j.name}`); toast('Tersimpan di Google Drive: ' + j.name, 5000); return; }
@@ -2660,12 +2669,54 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
 function setDriveStatus(t) { const el = $('#drive-status'); if (el) el.textContent = t; }
 function initDriveUI() {
   const on = driveEnabled();
-  $('#drive-auto').disabled = !on;
-  $('#drive-auto').checked = on && S.driveAuto !== false;
+  $('#btn-drive-setup').textContent = on ? '⚙ Ubah koneksi Drive' : '🔗 Hubungkan Google Drive';
+  $('#drive-auto').disabled = false;
+  $('#drive-auto').checked = S.driveAuto !== false;      // tercentang otomatis (bawaan)
   $('#drive-auto').onchange = e => { S.driveAuto = e.target.checked; save(); };
   const link = $('#drive-link');
   if (/^https:\/\/drive\.google\.com\/drive\/folders\/[\w-]+/.test(CFG.driveFolderUrl || '')) { link.href = CFG.driveFolderUrl; link.hidden = false; } else link.hidden = true;
-  setDriveStatus(on ? 'Setiap ekspor PNG/JPG/PDF otomatis diunggah ke folder Drive dinas (perlu PIN).' : 'Upload ke Drive belum diaktifkan. Isi driveUploadUrl di js/config.js (lihat README).');
+  setDriveStatus(on ? 'Terhubung. Setiap ekspor PNG/JPG/PDF otomatis diunggah ke folder Drive dinas (perlu PIN).' : 'Belum terhubung. Saat ekspor pertama, dialog "Hubungkan Google Drive" akan muncul (sekali saja).');
+}
+/* ---------- dialog hubungkan Google Drive ---------- */
+async function openDriveSetup() {
+  $('#drive-modal').hidden = false;
+  $('#dm-url').value = driveUrl();
+  $('#dm-result').textContent = '';
+  const ta = $('#dm-code');
+  if (!ta.value) {
+    try { const r = await fetch('apps-script/Code.gs', { cache: 'no-store' }); if (!r.ok) throw 0; ta.value = await r.text(); }
+    catch (e) { ta.value = '// Kode tidak bisa dimuat otomatis di sini. Buka file apps-script/Code.gs dari folder aplikasi / repo GitHub, lalu salin isinya.'; }
+  }
+}
+async function testDrive(url) {
+  const r = await fetch(url, { method: 'GET', redirect: 'follow' });
+  const j = await r.json();
+  if (!j || !j.ok || j.app !== 'peta-lokasi-upload') throw new Error('URL bukan Web App upload peta lokasi');
+}
+function bindDriveSetup() {
+  $('#btn-drive-setup').onclick = openDriveSetup;
+  $('#dm-close').onclick = () => { $('#drive-modal').hidden = true; };
+  $('#dm-copy').onclick = async () => {
+    const ta = $('#dm-code'); ta.select();
+    try { await navigator.clipboard.writeText(ta.value); } catch (e) { document.execCommand('copy'); }
+    toast('Kode Apps Script disalin. Tempel di script.google.com.');
+  };
+  $('#dm-test').onclick = async () => {
+    const url = $('#dm-url').value.trim(), out = $('#dm-result');
+    if (!DRIVE_URL_RE.test(url)) { out.textContent = '⚠️ Format URL salah. Harus diawali https://script.google.com/macros/s/… dan diakhiri /exec'; return; }
+    out.textContent = '⏳ Menguji koneksi…';
+    try {
+      await testDrive(url);
+      try { localStorage.setItem('petaDriveUrl', url); } catch (e) {}
+      S.driveAuto = true; save();
+      out.textContent = '✔ Terhubung! Mulai sekarang setiap ekspor PNG/JPG/PDF otomatis tersimpan ke Google Drive.';
+      initDriveUI();
+      if (R.pendingDrive) { const p = R.pendingDrive; R.pendingDrive = null; setTimeout(() => { $('#drive-modal').hidden = true; uploadToDrive(p.blob, p.name, p.fmt); }, 900); }
+    } catch (e) {
+      out.textContent = '⚠️ Gagal terhubung: ' + (e.message || e) + '. Pastikan Deploy sebagai Web app, Execute as: Me, Who has access: Anyone.';
+    }
+  };
+  $('#dm-disconnect').onclick = () => { try { localStorage.removeItem('petaDriveUrl'); } catch (e) {} sessionStorage.removeItem('petaDrivePin'); $('#dm-url').value = ''; initDriveUI(); $('#dm-result').textContent = 'Koneksi Drive di browser ini dihapus.'; };
 }
 /* resolusi ekspor: dpi kertas (1 px CSS = 1/96 inci) atau lebar piksel kustom */
 function exportRatio() {
@@ -2898,6 +2949,7 @@ function initFromState() {
 }
 
 bindControls();
+bindDriveSetup();
 initDriveUI();
 bindDesaSearch();
 bindPageEditing();
