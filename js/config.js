@@ -10,6 +10,6 @@
    password, atau kunci API di sini. PIN hanya disimpan di Apps Script.
    ===================================================================== */
 window.PETA_CONFIG = Object.freeze({
-  driveUploadUrl: 'https://script.google.com/macros/s/AKfycbxVGBRiKroOlG97NpUxwDlM7v79rB9YlRiqLHigL6EXLGrlQpNPM4yHGZMJ5zKOGjKm/exec',
+  driveUploadUrl: 'https://script.google.com/macros/s/AKfycbzf9bjjdJjY4HGCQrjVRHCojul9LiO5KG3kNOlxa2jmrKecQqBXmTEVDyAoTpgzyGF_qA/exec',
   driveFolderUrl: 'https://drive.google.com/drive/folders/1p5t_D-r2YOCYQfmiblRFEaYZQ3XqGKaW'
 });

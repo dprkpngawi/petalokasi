@@ -2661,8 +2661,21 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
     if (/PIN/i.test(j.error || '') && retry < 2) { sessionStorage.removeItem('petaDrivePin'); if (askPin(true)) return uploadToDrive(blob, name, fmt, retry + 1); }
     throw new Error(j.error || 'ditolak server');
   } catch (e) {
-    setDriveStatus('⚠️ Gagal upload ke Drive: ' + (e.message || e));
-    toast('Gagal upload ke Google Drive: ' + (e.message || e) + '. File tetap tersimpan di laptop.', 7000);
+    // diagnosa: apakah Web App bisa diakses sama sekali?
+    let why = e.message || String(e);
+    if (/fetch|network|load/i.test(why)) {
+      try {
+        const r = await fetch(driveUrl(), { method: 'GET', redirect: 'follow' });
+        const j = await r.json();
+        why = j && j.app === 'peta-lokasi-upload'
+          ? 'Script aktif, tetapi unggahan gagal. Buat versi baru: Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy.'
+          : 'Alamat Web App bukan script peta lokasi.';
+      } catch (e2) {
+        why = 'Script Google tidak bisa diakses. Di script.google.com: Deploy → Manage deployments → ✏ Edit → pastikan "Who has access: Anyone" dan Version: New version → Deploy.';
+      }
+    }
+    setDriveStatus('⚠️ Gagal upload ke Drive: ' + why);
+    toast('Gagal upload ke Google Drive. ' + why + ' File tetap tersimpan di laptop.', 12000);
   }
 }
 function setDriveStatus(t) { const el = $('#drive-status'); if (el) el.textContent = t; }
