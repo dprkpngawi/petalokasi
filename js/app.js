@@ -2670,7 +2670,15 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
       } catch (e) { /* coba lagi */ }
     }
     if (!j) throw new Error('tidak ada konfirmasi dari script. Cek folder Drive; bila file tidak ada, pastikan Code.gs terbaru sudah di-Deploy (New version)');
-    if (j.ok) { setDriveStatus(`✔ Tersimpan di Drive: ${j.name}`); toast('Tersimpan di Google Drive: ' + j.name, 5000); return; }
+    if (j.ok) {
+      const el = $('#drive-status');
+      el.textContent = `✔ Tersimpan di Drive: ${j.name}` + (j.folder ? ` (folder "${j.folder}"${j.owner ? ', akun ' + j.owner : ''})` : '') + ' ';
+      const safeUrl = u => /^https:\/\/(drive|docs)\.google\.com\//.test(u || '') ? u : null;
+      [[safeUrl(j.url), 'Buka file ↗'], [safeUrl(j.folderUrl), 'Buka folder ↗']].forEach(([u, t]) => {
+        if (!u) return; const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = t; a.style.marginRight = '8px'; el.appendChild(a);
+      });
+      toast('Tersimpan di Google Drive: ' + j.name, 5000); return;
+    }
     if (/PIN/i.test(j.error || '') && retry < 2) { sessionStorage.removeItem('petaDrivePin'); if (askPin(true)) return uploadToDrive(blob, name, fmt, retry + 1); return; }
     throw new Error(j.error || 'ditolak script');
   } catch (e) {
