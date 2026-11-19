@@ -2652,30 +2652,31 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
   const mime = { png: 'image/png', jpg: 'image/jpeg', pdf: 'application/pdf' }[fmt];
   if (blob.size > 45 * 1024 * 1024) { toast('File terlalu besar untuk diunggah ke Drive (maks. 45 MB). Pilih resolusi lebih kecil.', 6000); return; }
   setDriveStatus('⏳ Mengunggah ke Google Drive…');
+  const uploadId = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   try {
     const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
-    const res = await fetch(driveUrl(), { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ pin, name, mime, data: b64 }) });
-    const j = await res.json();
-    if (j.ok) { setDriveStatus(`✔ Tersimpan di Drive: ${j.name}`); toast('Tersimpan di Google Drive: ' + j.name, 5000); return; }
-    if (/PIN/i.test(j.error || '') && retry < 2) { sessionStorage.removeItem('petaDrivePin'); if (askPin(true)) return uploadToDrive(blob, name, fmt, retry + 1); }
-    throw new Error(j.error || 'ditolak server');
-  } catch (e) {
-    // diagnosa: apakah Web App bisa diakses sama sekali?
-    let why = e.message || String(e);
-    if (/fetch|network|load/i.test(why)) {
+    // 1) kirim file (balasan tidak perlu dibaca → tidak terganggu CORS / pengalihan Google)
+    await fetch(driveUrl(), { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ pin, name, mime, data: b64, uploadId }) });
+    // 2) tanyakan hasilnya ke script
+    setDriveStatus('⏳ Memastikan file tersimpan di Drive…');
+    let j = null;
+    for (let k = 0; k < 20 && !j; k++) {
+      await new Promise(r => setTimeout(r, k === 0 ? 800 : 1500));
       try {
-        const r = await fetch(driveUrl(), { method: 'GET', redirect: 'follow' });
-        const j = await r.json();
-        why = j && j.app === 'peta-lokasi-upload'
-          ? 'Script aktif, tetapi unggahan gagal. Buat versi baru: Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy.'
-          : 'Alamat Web App bukan script peta lokasi.';
-      } catch (e2) {
-        why = 'Script Google tidak bisa diakses. Di script.google.com: Deploy → Manage deployments → ✏ Edit → pastikan "Who has access: Anyone" dan Version: New version → Deploy.';
-      }
+        const r = await fetch(driveUrl() + '?status=' + uploadId, { method: 'GET', redirect: 'follow' });
+        const v = await r.json();
+        if (!v.pending) j = v;
+      } catch (e) { /* coba lagi */ }
     }
+    if (!j) throw new Error('tidak ada konfirmasi dari script. Cek folder Drive; bila file tidak ada, pastikan Code.gs terbaru sudah di-Deploy (New version)');
+    if (j.ok) { setDriveStatus(`✔ Tersimpan di Drive: ${j.name}`); toast('Tersimpan di Google Drive: ' + j.name, 5000); return; }
+    if (/PIN/i.test(j.error || '') && retry < 2) { sessionStorage.removeItem('petaDrivePin'); if (askPin(true)) return uploadToDrive(blob, name, fmt, retry + 1); return; }
+    throw new Error(j.error || 'ditolak script');
+  } catch (e) {
+    const why = e.message || String(e);
     setDriveStatus('⚠️ Gagal upload ke Drive: ' + why);
-    toast('Gagal upload ke Google Drive. ' + why + ' File tetap tersimpan di laptop.', 12000);
+    toast('Gagal upload ke Google Drive: ' + why + '. File tetap tersimpan di laptop.', 12000);
   }
 }
 function setDriveStatus(t) { const el = $('#drive-status'); if (el) el.textContent = t; }
