@@ -32,10 +32,8 @@
     <button id="btn-pdfimg" title="Unduh PDF (gambar resolusi tinggi) – bisa otomatis disimpan ke Drive">📄 PDF</button>
   </div>
   <div class="drive-box">
-    <label class="chk"><input type="checkbox" id="drive-auto" checked> ☁️ Simpan otomatis ke Google Drive</label>
-    <div class="row" style="margin:4px 0"><button id="btn-drive-setup" class="grow">🔗 Hubungkan Google Drive</button></div>
-    <a id="drive-link" target="_blank" rel="noopener noreferrer" hidden>Buka folder Drive ↗</a>
     <p class="hint" id="drive-status"></p>
+    <a id="drive-link" target="_blank" rel="noopener noreferrer" hidden>Buka folder Drive ↗</a>
   </div>
   <div class="sb-actions" style="padding-top:0">
     <label class="exres">Resolusi gambar
@@ -389,30 +387,6 @@ Survey Lapang, 2026</textarea>
   <input type="color" id="fmt-color" title="Warna lain…">
   <div id="fmt-sw" class="swatches fmt-sw"></div>
   <button data-f="reset" title="Kembalikan gaya bawaan">↺</button>
-</div>
-
-<!-- dialog hubungkan Google Drive -->
-<div id="drive-modal" class="modal no-print" hidden>
-  <div class="modal-box">
-    <h3>🔗 Hubungkan ke Google Drive (sekali saja)</h3>
-    <p class="hint">Dilakukan oleh <b>pemilik folder Drive</b>. Setelah terhubung, setiap ekspor PNG/JPG/PDF otomatis masuk ke folder Drive dinas.</p>
-    <ol class="dm-steps">
-      <li>Klik <b>Salin kode</b> di bawah, lalu buka <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener noreferrer">script.google.com → New project ↗</a>. Hapus isi editor, tempel (Ctrl+V), lalu simpan (Ctrl+S).</li>
-      <li>Klik ikon <b>⚙ Project Settings</b> → <b>Script Properties</b> → <b>Add script property</b>: nama <code>UPLOAD_PIN</code>, nilai PIN rahasia (mis. 6 digit). Klik <b>Save</b>.</li>
-      <li>Klik <b>Deploy → New deployment</b> → ikon ⚙ → <b>Web app</b>. Isi <i>Execute as</i>: <b>Me</b>, <i>Who has access</i>: <b>Anyone</b> → <b>Deploy</b> → <b>Authorize access</b> → pilih akun → <i>Advanced</i> → <i>Go to … (unsafe)</i> → <b>Allow</b>.</li>
-      <li>Salin <b>Web app URL</b> (berakhiran <code>/exec</code>), tempel di kotak bawah, lalu klik <b>Tes &amp; simpan</b>.</li>
-    </ol>
-    <textarea id="dm-code" rows="6" readonly></textarea>
-    <div class="row"><button id="dm-copy">📋 Salin kode Apps Script</button></div>
-    <label>Web app URL
-      <input id="dm-url" type="text" placeholder="https://script.google.com/macros/s/AKfy…/exec">
-    </label>
-    <p class="hint" id="dm-result"></p>
-    <div class="row" style="justify-content:space-between">
-      <button id="dm-disconnect" class="danger">Putuskan</button>
-      <span><button id="dm-close">Tutup</button> <button id="dm-test" class="primary">Tes &amp; simpan</button></span>
-    </div>
-  </div>
 </div>
 
 <!-- dialog impor XY Excel -->
