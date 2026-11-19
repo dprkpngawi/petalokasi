@@ -100,7 +100,7 @@ const DEFAULT_STATE = () => ({
   freeScale: false, northStyle: 'arcgis', northSize: 9,
   scaleBarStyle: 'alternating', scaleDivs: 'arcgis', scaleUnit: 'auto', scaleUnitShort: false, scaleDecComma: false, scaleTextStyle: 'en',
   insetAutoDesa: true, insetLegend: false, citraAuto: true,
-  insetMode: 'kab', insetBoxFrac: 0.15, autoLabels: true, autoJudul: true, autoLokasi: true, driveAuto: true,
+  insetMode: 'kab', insetBoxFrac: 0.15, autoLabels: true, autoJudul: true, autoLokasi: true,
   tema: 'Perumahan',
   textStyle: {},
   jalanEdits: { removed: [], added: [], reclass: {} },
@@ -2617,9 +2617,7 @@ async function exportImage(fmt, reloadTiles = false) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 8000);
     toast(`${fmt.toUpperCase()} diunduh (${cv.width} × ${cv.height} px).`, 4000);
-    // selalu simpan ke Google Drive dinas
-    if (driveEnabled()) uploadToDrive(blob, name, fmt);
-    else toast('File terunduh, tetapi belum tersimpan ke Drive: driveUploadUrl di js/config.js belum diisi.', 7000);
+
   } catch (e) {
     console.error(e);
     const msg = e && e.message ? e.message : (e && e.type ? 'ada gambar yang tidak bisa dibaca' : String(e));
@@ -2629,76 +2627,6 @@ async function exportImage(fmt, reloadTiles = false) {
   }
 }
 
-/* ---------- simpan otomatis ke Google Drive (lewat Google Apps Script milik dinas) ----------
-   Tidak ada kunci rahasia di kode ini: unggahan hanya diterima bila PIN yang diketik petugas
-   cocok dengan PIN yang disimpan di Script Properties Apps Script. Folder tujuan ditetapkan
-   di sisi server (Apps Script), bukan dari browser. */
-const CFG = window.PETA_CONFIG || {};
-const DRIVE_URL_RE = /^https:\/\/script\.google\.com\/(a\/macros\/[\w.-]+\/|macros\/)s\/[\w-]+\/exec$/;
-/* URL Web App: dari config.js (berlaku untuk semua pengguna) atau diisi lewat tombol "Hubungkan" (tersimpan di browser ini) */
-function driveUrl() {
-  if (DRIVE_URL_RE.test(CFG.driveUploadUrl || '')) return CFG.driveUploadUrl;
-  try { const u = localStorage.getItem('petaDriveUrl') || ''; return DRIVE_URL_RE.test(u) ? u : ''; } catch (e) { return ''; }
-}
-function driveEnabled() { return !!driveUrl(); }
-function askPin(again) {
-  const p = prompt((again ? 'PIN salah. ' : '') + 'Masukkan PIN upload Google Drive DPRKP (disimpan hanya selama tab ini terbuka):');
-  if (p) sessionStorage.setItem('petaDrivePin', p.trim());
-  return p ? p.trim() : null;
-}
-async function uploadToDrive(blob, name, fmt, retry = 0) {
-  let pin = sessionStorage.getItem('petaDrivePin') || askPin(false);
-  if (!pin) { toast('Upload ke Drive dibatalkan (PIN tidak diisi).'); return; }
-  const mime = { png: 'image/png', jpg: 'image/jpeg', pdf: 'application/pdf' }[fmt];
-  if (blob.size > 45 * 1024 * 1024) { toast('File terlalu besar untuk diunggah ke Drive (maks. 45 MB). Pilih resolusi lebih kecil.', 6000); return; }
-  setDriveStatus('⏳ Mengunggah ke Google Drive…');
-  const uploadId = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-  try {
-    const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
-    // 1) kirim file (balasan tidak perlu dibaca → tidak terganggu CORS / pengalihan Google)
-    await fetch(driveUrl(), { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ pin, name, mime, data: b64, uploadId }) });
-    // 2) tanyakan hasilnya ke script
-    setDriveStatus('⏳ Memastikan file tersimpan di Drive…');
-    let j = null;
-    for (let k = 0; k < 20 && !j; k++) {
-      await new Promise(r => setTimeout(r, k === 0 ? 800 : 1500));
-      try {
-        const r = await fetch(driveUrl() + '?status=' + uploadId, { method: 'GET', redirect: 'follow' });
-        const v = await r.json();
-        // script versi lama hanya menjawab {ok, app} tanpa hasil unggahan
-        if (v && v.app === 'peta-lokasi-upload' && !v.name) throw Object.assign(new Error('old'), { old: true });
-        if (!v.pending) j = v;
-      } catch (e) {
-        if (e.old) throw new Error('script di Google masih VERSI LAMA. Di Apps Script: tempel Code.gs terbaru → Ctrl+S → Terapkan → Kelola penerapan → ✏ Edit → Versi: Versi baru → Terapkan');
-      }
-    }
-    if (!j) throw new Error('tidak ada konfirmasi dari script. Cek folder Drive; bila file tidak ada, pastikan Code.gs terbaru sudah di-Deploy (New version)');
-    if (j.ok && !j.name) throw new Error('jawaban script tidak lengkap – pastikan Code.gs terbaru sudah di-deploy (Versi baru)');
-    if (j.ok) {
-      const el = $('#drive-status');
-      el.textContent = `✔ Tersimpan di Drive: ${j.name}` + (j.folder ? ` (folder "${j.folder}"${j.owner ? ', akun ' + j.owner : ''})` : '') + ' ';
-      const safeUrl = u => /^https:\/\/(drive|docs)\.google\.com\//.test(u || '') ? u : null;
-      [[safeUrl(j.url), 'Buka file ↗'], [safeUrl(j.folderUrl), 'Buka folder ↗']].forEach(([u, t]) => {
-        if (!u) return; const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = t; a.style.marginRight = '8px'; el.appendChild(a);
-      });
-      toast('Tersimpan di Google Drive: ' + j.name, 5000); return;
-    }
-    if (/PIN/i.test(j.error || '') && retry < 2) { sessionStorage.removeItem('petaDrivePin'); if (askPin(true)) return uploadToDrive(blob, name, fmt, retry + 1); return; }
-    throw new Error(j.error || 'ditolak script');
-  } catch (e) {
-    const why = e.message || String(e);
-    setDriveStatus('⚠️ Gagal upload ke Drive: ' + why);
-    toast('Gagal upload ke Google Drive: ' + why + '. File tetap tersimpan di laptop.', 12000);
-  }
-}
-function setDriveStatus(t) { const el = $('#drive-status'); if (el) el.textContent = t; }
-function initDriveUI() {
-  const link = $('#drive-link');
-  if (/^https:\/\/drive\.google\.com\/drive\/folders\/[\w-]+/.test(CFG.driveFolderUrl || '')) { link.href = CFG.driveFolderUrl; link.hidden = false; } else link.hidden = true;
-  setDriveStatus(driveEnabled() ? '☁️ Setiap ekspor PNG/JPG/PDF otomatis tersimpan ke Google Drive dinas.'
-                                : '⚠️ Penyimpanan Drive belum aktif: isi driveUploadUrl di js/config.js.');
-}
 /* resolusi ekspor: dpi kertas (1 px CSS = 1/96 inci) atau lebar piksel kustom */
 function exportRatio() {
   const v = $('#export-res').value;
@@ -2930,7 +2858,6 @@ function initFromState() {
 }
 
 bindControls();
-initDriveUI();
 bindDesaSearch();
 bindPageEditing();
 bindFmtBar();
