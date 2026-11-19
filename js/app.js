@@ -2666,10 +2666,15 @@ async function uploadToDrive(blob, name, fmt, retry = 0) {
       try {
         const r = await fetch(driveUrl() + '?status=' + uploadId, { method: 'GET', redirect: 'follow' });
         const v = await r.json();
+        // script versi lama hanya menjawab {ok, app} tanpa hasil unggahan
+        if (v && v.app === 'peta-lokasi-upload' && !v.name) throw Object.assign(new Error('old'), { old: true });
         if (!v.pending) j = v;
-      } catch (e) { /* coba lagi */ }
+      } catch (e) {
+        if (e.old) throw new Error('script di Google masih VERSI LAMA. Di Apps Script: tempel Code.gs terbaru → Ctrl+S → Terapkan → Kelola penerapan → ✏ Edit → Versi: Versi baru → Terapkan');
+      }
     }
     if (!j) throw new Error('tidak ada konfirmasi dari script. Cek folder Drive; bila file tidak ada, pastikan Code.gs terbaru sudah di-Deploy (New version)');
+    if (j.ok && !j.name) throw new Error('jawaban script tidak lengkap – pastikan Code.gs terbaru sudah di-deploy (Versi baru)');
     if (j.ok) {
       const el = $('#drive-status');
       el.textContent = `✔ Tersimpan di Drive: ${j.name}` + (j.folder ? ` (folder "${j.folder}"${j.owner ? ', akun ' + j.owner : ''})` : '') + ' ';
