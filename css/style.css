@@ -311,12 +311,3 @@ body.picking #map { cursor: crosshair; }
 #desa-res .dr { padding: 6px 10px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #eef1f5; }
 #desa-res .dr small { display: block; color: #6a7282; font-size: 11px; }
 #desa-res .dr.on, #desa-res .dr:hover { background: #eaf1fb; }
-.drive-box { padding: 0 12px 8px; border-bottom: 1px solid #e3e6eb; }
-.drive-box label { margin: 2px 0 !important; font-weight: 600 !important; }
-.drive-box a { font-size: 12px; color: #1f6fff; }
-.drive-box .hint { margin: 3px 0 0; }
-.dm-steps { padding-left: 18px; line-height: 1.5; }
-.dm-steps li { margin-bottom: 6px; }
-#dm-code { width: 100%; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #c4cad4; border-radius: 5px; padding: 6px; margin: 6px 0; }
-#drive-modal label { display: block; font-weight: 600; margin-top: 8px; }
-#dm-url { width: 100%; padding: 7px; margin-top: 3px; border: 1px solid #c4cad4; border-radius: 5px; font: inherit; }

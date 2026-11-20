@@ -135,6 +135,39 @@ const R = {               // objek runtime (tidak disimpan)
 };
 
 /* ---------------------------------------------------------------
+   PEMUAT MALAS (lazy-load): library & data berat baru dimuat saat dibutuhkan
+--------------------------------------------------------------- */
+const APP_VERSION = '2026.11.20';
+const _scripts = {};
+function loadScript(src) {
+  if (!_scripts[src]) _scripts[src] = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = src + (src.includes('?') ? '&' : '?') + 'v=' + APP_VERSION;
+    el.async = true;
+    el.onload = () => res(); el.onerror = () => { delete _scripts[src]; rej(new Error('gagal memuat ' + src)); };
+    document.head.appendChild(el);
+  });
+  return _scripts[src];
+}
+const LIB = {
+  shp: () => loadScript('lib/shp.min.js'),
+  zip: () => loadScript('lib/jszip.min.js'),
+  kml: () => loadScript('lib/togeojson.umd.js'),
+  xlsx: () => loadScript('lib/xlsx.full.min.js'),
+  img: () => loadScript('lib/html-to-image.js'),
+  pdf: () => loadScript('lib/jspdf.umd.min.js')
+};
+/* data referensi Ngawi dimuat setelah halaman tampil (tidak menahan tampilan awal) */
+let _dataPromise = null;
+function loadData() {
+  if (!_dataPromise) _dataPromise = Promise.all(['data/batas_kabupaten.js', 'data/batas_desa.js', 'data/batas_admin.js', 'data/jalan.js', 'data/sungai.js']
+    .map(loadScript)).catch(e => { console.warn(e); });
+  return _dataPromise;
+}
+/* setelah browser senggang (tidak mengganggu interaksi) */
+const idle = fn => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+
+/* ---------------------------------------------------------------
    UTIL
 --------------------------------------------------------------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -149,6 +182,7 @@ function toast(msg, ms = 2600) {
 }
 let saveTimer;
 function save() {
+  R.dataVer = (R.dataVer || 0) + 1;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); }
@@ -401,11 +435,31 @@ function applyCitraLine() {
   el.textContent = S.citraAuto ? (R.captureText || '') : '';
 }
 
+/* Detail citra:
+   - di layar: secukupnya (1×, atau 2× di layar HiDPI) → ringan & cepat
+   - saat ekspor/cetak: dinaikkan sementara sesuai resolusi keluaran (R.boostF) lalu dikembalikan */
 function detailFactor() {
-  if (S.imgQuality !== 'auto') return Number(S.imgQuality) || 1;
-  const d = Math.round((R.availZ || 18) - map.getZoom());
-  return Math.pow(2, Math.max(0, Math.min(2, d)));
+  const room = Math.max(0, Math.min(2, Math.round((R.availZ || 18) - map.getZoom())));   // level yang tersedia
+  if (R.boostF) return Math.min(R.boostF, Math.pow(2, room));
+  if (S.imgQuality !== 'auto') return Math.min(Number(S.imgQuality) || 1, Math.pow(2, room)) || 1;
+  const screen = (window.devicePixelRatio || 1) * (R.preview || 1) > 1.3 ? 1 : 0;
+  return Math.pow(2, Math.min(room, screen));
 }
+/* naikkan detail citra untuk keluaran, tunggu ubin selesai dimuat */
+async function boostImagery(ratio) {
+  const want = Math.pow(2, Math.max(0, Math.min(2, Math.round(Math.log2(Math.max(1, ratio))))));
+  if (want <= detailFactor()) return false;
+  R.boostF = want;
+  setBasemap();
+  await new Promise(res => {
+    if (!R.base) return res();
+    let done = false; const fin = () => { if (!done) { done = true; res(); } };
+    R.base.once('load', fin);
+    setTimeout(fin, 25000);                 // batas tunggu 25 detik
+  });
+  return true;
+}
+function unboostImagery() { if (R.boostF) { R.boostF = 0; setBasemap(); } }
 /* cek level zoom citra Esri tertinggi yang tersedia di tengah peta (tilemap) */
 let probeTimer;
 function probeImagery() {
@@ -442,7 +496,7 @@ function setBasemap() {
   const f = detailFactor();
   R.curF = f;
   const lf = Math.log2(f);
-  const opt = { maxZoom: 24, crossOrigin: 'anonymous', tileSize: 256 / f, zoomOffset: lf, keepBuffer: 4 };
+  const opt = { maxZoom: 24, crossOrigin: 'anonymous', tileSize: 256 / f, zoomOffset: lf, keepBuffer: 2, updateWhenZooming: false };
   const top = R.availZ || 18;
   const nz = n => Math.max(1, (n === 18 ? top : n) - lf);
   // satu citra: Esri World Imagery rilis 2026 terbaru (Wayback); cadangan: World Imagery live
@@ -641,6 +695,8 @@ function drawNorth() {
    LAYER REFERENSI (jalan, irigasi)
 --------------------------------------------------------------- */
 async function loadRefData() {
+  await loadData();
+  R.refData.jalan = composeJalan();
   for (const key of Object.keys(REF_DEFAULTS)) {
     try {
       // data jalan & sungai Ngawi disertakan sebagai file .js agar selalu termuat (juga saat dibuka tanpa server)
@@ -901,6 +957,7 @@ function newLayer(name, data) {
   return ly;
 }
 function renderUserLayer(ly) {
+  R.dataVer = (R.dataVer || 0) + 1;
   const old = R.userGroups[ly.id];
   if (old) { old.eachLayer(l => map.removeLayer(l)); map.removeLayer(old); }
   delete R.userGroups[ly.id];
@@ -929,6 +986,7 @@ function renderUserLayer(ly) {
 }
 function renderAllUserLayers() { S.layers.forEach(renderUserLayer); }
 function syncLayer(id) {
+  R.dataVer = (R.dataVer || 0) + 1;
   const ly = S.layers.find(l => l.id === id); const g = R.userGroups[id];
   if (!ly || !g) return;
   const feats = [];
@@ -1790,6 +1848,8 @@ const inset = L.map('inset', {
 });
 inset.setView([-7.43, 111.39], 9);
 async function loadInset() {
+  await loadData();
+  R.desaIdx = null;
   let desa = S.insetData, kab = null;
   try {
     if (!desa) desa = (window.PETA_DATA || {}).desa;
@@ -1825,6 +1885,25 @@ function positionInset() {
 }
 let insetRaf = 0;
 function scheduleInset() { if (!insetRaf) insetRaf = requestAnimationFrame(() => { insetRaf = 0; updateInset(); }); }
+/* saat peta digeser: hanya kotak merah di inset yang dipindah (ringan) */
+let boxRaf = 0;
+function scheduleInsetBox() { if (!boxRaf) boxRaf = requestAnimationFrame(() => { boxRaf = 0; moveInsetBox(); }); }
+function insetBoxBounds() {
+  const b = map.getBounds();
+  if (S.insetMode === 'follow') return b;
+  const p1 = inset.latLngToContainerPoint(b.getNorthWest()), p2 = inset.latLngToContainerPoint(b.getSouthEast());
+  const min = 12;
+  let x0 = p1.x, y0 = p1.y, x1 = p2.x, y1 = p2.y;
+  if (x1 - x0 < min) { const c = (x0 + x1) / 2; x0 = c - min / 2; x1 = c + min / 2; }
+  if (y1 - y0 < min) { const c = (y0 + y1) / 2; y0 = c - min / 2; y1 = c + min / 2; }
+  if (![x0, y0, x1, y1].every(isFinite) || !inset.getSize().x) return null;
+  return L.latLngBounds(inset.containerPointToLatLng([x0, y1]), inset.containerPointToLatLng([x1, y0]));
+}
+function moveInsetBox() {
+  if (S.insetMode === 'follow') { positionInset(); }
+  const bb = insetBoxBounds();
+  if (R.insetBox && bb) R.insetBox.setBounds(bb);
+}
 /* ---------- cari desa / kelurahan / kecamatan → zoom ke wilayahnya ---------- */
 function desaIndex() {
   if (R.desaIdx) return R.desaIdx;
@@ -1879,10 +1958,22 @@ function bindDesaSearch() {
 }
 
 /* desa tempat titik tengah peta berada (untuk disorot di inset) */
+function desaBBox(f) {
+  if (f._bb) return f._bb;
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  const walk = x => { if (typeof x[0] === 'number') { a = Math.min(a, x[0]); c = Math.max(c, x[0]); b = Math.min(b, x[1]); d = Math.max(d, x[1]); } else x.forEach(walk); };
+  walk(f.geometry.coordinates);
+  Object.defineProperty(f, '_bb', { value: [a, b, c, d], enumerable: false });
+  return f._bb;
+}
 function desaAt(ll) {
   if (!R.insetDesa) return null;
   const p = [ll.lng, ll.lat];
   return R.insetDesa.features.find(f => {
+    if (!f.geometry) return false;
+    const bb = desaBBox(f);
+    if (p[0] < bb[0] || p[0] > bb[2] || p[1] < bb[1] || p[1] > bb[3]) return false;   // cepat: di luar kotak
+
     const g = f.geometry; if (!g) return false;
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
     return polys.some(pl => pointInRing(p, pl[0]) && !pl.slice(1).some(h => pointInRing(p, h)));
@@ -1894,6 +1985,8 @@ const kecName = f => { const p = f.properties || {}; return p.KECAMATAN || p.WAD
 /* desa tempat lokasi perumahan berada (dari layer yang di-upload/digambar) */
 function lokasiDesa() {
   if (!R.insetDesa) return [];
+  // hasil disimpan sampai data layer berubah (versi data dinaikkan setiap save)
+  if (R._ldVer === R.dataVer && R._ldDesa === R.insetDesa) return R._ldRes;
   const found = new Map();
   S.layers.filter(l => l.visible && l.data.features.length).forEach(l => {
     l.data.features.forEach(f => {
@@ -1903,7 +1996,8 @@ function lokasiDesa() {
       if (d) found.set(desaName(d) + '|' + kecName(d), d);
     });
   });
-  return [...found.values()];
+  R._ldRes = [...found.values()]; R._ldVer = R.dataVer; R._ldDesa = R.insetDesa;
+  return R._ldRes;
 }
 function lokasiDesaText(list) {
   if (!list.length) return '';
@@ -1938,13 +2032,12 @@ function updateInset() {
     let x0 = p1.x, y0 = p1.y, x1 = p2.x, y1 = p2.y;
     if (x1 - x0 < min) { const c = (x0 + x1) / 2; x0 = c - min / 2; x1 = c + min / 2; }
     if (y1 - y0 < min) { const c = (y0 + y1) / 2; y0 = c - min / 2; y1 = c + min / 2; }
-    if ([x0, y0, x1, y1].every(isFinite) && inset.getSize().x > 0)
-      L.rectangle([inset.containerPointToLatLng([x0, y0]), inset.containerPointToLatLng([x1, y1])],
-        { color: '#ff0000', weight: 1.6, fill: false, interactive: false }).addTo(grp);
+    const bb = insetBoxBounds();
+    R.insetBox = bb ? L.rectangle(bb, { color: '#ff0000', weight: 1.6, fill: false, interactive: false }).addTo(grp) : null;
   }
   if (follow) {
     // kotak = cakupan peta utama, bergerak & berubah ukuran saat peta digeser/di-zoom
-    L.rectangle(map.getBounds(), { color: '#ff0000', weight: 1.8, fill: false, interactive: false }).addTo(grp);
+    R.insetBox = L.rectangle(map.getBounds(), { color: '#ff0000', weight: 1.8, fill: false, interactive: false }).addTo(grp);
     // nama desa di sekitar lokasi
     const vb = inset.getBounds(); const lbls = [];
     (R.insetDesa?.features || []).forEach(f => {
@@ -1992,6 +2085,18 @@ async function parseKmlText(txt) {
   return toGeoJSON.kml(dom);
 }
 async function handleFiles(fileList, asRef) {
+  // salin daftar file SEKARANG (input file dikosongkan setelah fungsi ini dipanggil)
+  fileList = [...fileList];
+  // muat pembaca format file hanya bila diperlukan
+  const names = fileList.map(f => f.name.toLowerCase());
+  try {
+    await Promise.all([
+      names.some(n => /\.(zip|shp)$/.test(n)) ? LIB.shp() : null,
+      names.some(n => /\.(kml|kmz)$/.test(n)) ? LIB.kml() : null,
+      names.some(n => /\.kmz$/.test(n)) ? LIB.zip() : null,
+      names.some(n => /\.(xlsx|xls|csv|ods)$/.test(n)) ? LIB.xlsx() : null
+    ]);
+  } catch (e) { toast('Gagal memuat pembaca file: ' + e.message); return; }
   const files = [...fileList];
   const added = [];
   const lower = f => f.name.toLowerCase();
@@ -2263,6 +2368,7 @@ function parseCoord(v) {
 }
 const XY = { rows: [], cols: [], name: '' };
 async function openXY(file) {
+  await LIB.xlsx();
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   XY.wb = wb; XY.name = file.name.replace(/\.[^.]+$/, '');
   $('#xy-sheet').innerHTML = wb.SheetNames.map(n => `<option>${esc(n)}</option>`).join('');
@@ -2535,15 +2641,18 @@ function fitPreview() {
    CETAK & PNG
 --------------------------------------------------------------- */
 window.addEventListener('beforeprint', () => { applyTexts(); });
-$('#btn-print').onclick = () => {
+$('#btn-print').onclick = async () => {
+  toast('Memuat citra detail tinggi untuk dicetak…', 20000);
+  await boostImagery(300 / 96);
   toast('Pilih "Simpan sebagai PDF", Margin: Tidak ada, centang "Grafik latar belakang".', 5000);
-  setTimeout(() => window.print(), 300);
+  setTimeout(() => { window.print(); setTimeout(unboostImagery, 1000); }, 300);
 };
 /* Ekspor gambar (PNG / JPG):
    1) ubin citra digambar langsung dari gambar yang sudah termuat di peta (tidak diunduh ulang),
    2) seluruh lembar (garis, label, legenda, panel) dirender di atasnya dengan latar transparan. */
 /* gambar seluruh lembar peta ke kanvas (citra + lembar) */
 async function renderPageCanvas(reloadTiles = false) {
+  await LIB.img();
   const page = $('#page');
   const W = page.offsetWidth, H = page.offsetHeight;
   const ratio = exportRatio();
@@ -2591,9 +2700,11 @@ async function exportImage(fmt, reloadTiles = false) {
   let blob, cv;
   try {
     await new Promise(r => setTimeout(r, 80));
+    if (await boostImagery(ratio)) toast('Memuat citra detail tinggi untuk ekspor…', 20000);
     cv = await renderPageCanvas(reloadTiles);
     try {
       if (fmt === 'pdf') {
+        await LIB.pdf();
         // PDF seukuran kertas (mm) berisi gambar peta resolusi tinggi
         const jpg = await canvasBlob(cv, 'image/jpeg', 0.92);
         if (!jpg) throw new Error('ukuran');
@@ -2624,6 +2735,7 @@ async function exportImage(fmt, reloadTiles = false) {
     toast('Gagal membuat gambar: ' + msg + '. Coba resolusi lebih kecil atau gunakan Cetak / PDF.', 8000);
   } finally {
     document.body.classList.remove('exporting');
+    unboostImagery();
   }
 }
 
@@ -2800,7 +2912,7 @@ function bindControls() {
   ws.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
 }
 
-map.on('move zoom', () => { scheduleGrid(); scheduleInset(); });
+map.on('move zoom', () => { scheduleGrid(); scheduleInsetBox(); });
 map.on('moveend', () => { updateImageryInfo(); probeImagery(); refreshAdminLabels(); });
 map.on('moveend', () => {
   const c = map.getCenter(); S.center = [c.lat, c.lng];
@@ -2871,8 +2983,14 @@ if ('ResizeObserver' in window) {
   }).observe($('#inset'));
 }
 loadLatestRelease();
-loadRefData();
-loadInset();
+// data jalan/sungai/batas dimuat setelah tampilan pertama selesai digambar
+requestAnimationFrame(() => setTimeout(() => { loadRefData(); loadInset(); }, 0));
+// siapkan library ekspor di waktu senggang supaya tombol PNG/JPG/PDF langsung responsif
+idle(() => { LIB.img().catch(() => {}); });
+// cache offline (GitHub Pages / https): kunjungan berikutnya jauh lebih cepat
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {}));
+}
 
 // API kecil untuk debug di console
 window.PetaLokasi = { state: () => S, map, inset, setScale, handleFiles };

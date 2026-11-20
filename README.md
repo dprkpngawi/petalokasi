@@ -55,7 +55,16 @@ Aplikasi web statis untuk membuat **layout peta lokasi** (perumahan, PSU, RTLH, 
 - Teks kop, judul, lokasi, sumber data, dan logo bisa diedit
 - **Simpan otomatis** di browser, dan **simpan/buka file proyek (.json)**
 - Unduh layer hasil edit ke **KML / GeoJSON**
-- Ekspor **PDF** (gambar resolusi tinggi atau lewat Cetak untuk vektor), **PNG**, dan **JPG**, semuanya bisa otomatis tersimpan ke **Google Drive** dinas; (resolusi bisa dipilih: 96, 150, 200 (default), 300, atau 400 dpi, atau lebar piksel kustom). Citra digambar langsung dari ubin yang sudah tampil sehingga ekspor stabil.
+- Ekspor **PDF** (gambar resolusi tinggi atau lewat Cetak untuk vektor), **PNG**, dan **JPG**; (resolusi bisa dipilih: 96, 150, 200 (default), 300, atau 400 dpi, atau lebar piksel kustom). Citra digambar langsung dari ubin yang sudah tampil sehingga ekspor stabil.
+
+## Kecepatan
+
+- **Tampilan awal cepat**: hanya peta dan panel yang dimuat di awal. Data jalan, sungai, dan batas dimuat sesaat setelah halaman tampil. Library besar (Excel, SHP/KML, PDF, ekspor gambar) baru dimuat ketika fitur itu dipakai.
+- **Citra ringan di layar, tajam saat dicetak**: di layar dipakai detail secukupnya. Saat menekan PNG/JPG/PDF/Cetak, citra otomatis dimuat ulang dengan detail tinggi sesuai resolusi keluaran, lalu dikembalikan.
+- **Geser peta lancar**: saat digeser hanya kotak merah inset dan grid yang diperbarui. Legenda, judul, dan desa dihitung ulang sekali setelah selesai digeser, dan pencarian desa memakai pemeriksaan kotak batas (bbox) yang cepat.
+- **Kunjungan berikutnya instan** (GitHub Pages): *service worker* (`sw.js`) menyimpan aplikasi, data, dan ubin citra yang pernah dilihat di cache browser. Halaman dan kode aplikasi tetap selalu mengambil versi terbaru.
+- Data jalan dan irigasi disederhanakan dengan toleransi ±0,4 m (tidak terlihat bahkan di skala 1:500). Ukurannya turun ±30%.
+- Saat memperbarui aplikasi, naikkan `APP_VERSION` di `js/app.js` dan `VERSION` di `sw.js` (serta `?v=` di `index.html`) agar semua pengguna mendapat file terbaru.
 
 ## Standar simbol (Permen ATR/BPN No. 14 Tahun 2021)
 
@@ -89,6 +98,7 @@ Warna perumahan dapat dipilih dari zona perumahan standar (R-1 sampai R-5, Tabel
 peta-lokasi/
 ├── index.html
 ├── css/style.css
+├── sw.js                         ← service worker (cache agar cepat)
 ├── js/app.js
 ├── assets/logo-ngawi.png
 ├── data/
@@ -97,8 +107,6 @@ peta-lokasi/
 │   ├── batas_desa.js             ← dari ADMINISTRASIDESA_AR_25K (desa Ngawi; potongan desa bernama sama dalam satu kecamatan sudah digabung, 252 → 214 desa)
 │   ├── batas_kabupaten.js        ← garis batas Kabupaten Ngawi (hasil dissolve desa)
 │   └── batas_admin.js            ← garis batas kab/kec/desa + titik nama (peta utama)
-├── js/config.js                  ← pengaturan admin (URL Apps Script, link folder Drive)
-├── apps-script/Code.gs           ← penerima upload Google Drive (dipasang di script.google.com)
 └── lib/                          ← Leaflet, Geoman, shpjs, togeojson, JSZip, html-to-image
 ```
 
@@ -146,40 +154,12 @@ Semua library sudah disertakan di folder `lib/`, jadi aplikasi tidak bergantung 
 
 Konversi SHP ke GeoJSON bisa dilakukan di QGIS: klik kanan layer → **Export → Save Features As → GeoJSON**, dengan CRS **EPSG:4326**.
 
-## Simpan otomatis ke Google Drive
-
-Setiap ekspor **PNG / JPG / PDF** bisa otomatis tersimpan ke folder Drive dinas:
-https://drive.google.com/drive/folders/1p5t_D-r2YOCYQfmiblRFEaYZQ3XqGKaW
-
-Aplikasi web ini statis, jadi penyimpanan ke Drive memakai **Google Apps Script** milik akun dinas sebagai perantara. File `apps-script/Code.gs` sudah disiapkan.
-
-**Cara termudah:** di aplikasi, klik **🔗 Hubungkan Google Drive** di bawah tombol ekspor. Dialognya berisi langkah-langkah, tombol salin kode Apps Script, dan kotak untuk menempel *Web app URL*, lalu **Tes & simpan**. URL tersimpan di browser tersebut. Agar berlaku untuk semua komputer tanpa menghubungkan satu per satu, isi juga `driveUploadUrl` di `js/config.js` (langkah 5 di bawah).
-
-1. Login dengan akun Google **pemilik folder** di atas, lalu buka https://script.google.com → **New project**.
-2. Hapus isi editor, tempel seluruh isi `apps-script/Code.gs`, lalu simpan (Ctrl+S). Beri nama proyek, misalnya "Upload Peta Lokasi".
-3. Klik **⚙ Project Settings** → bagian **Script Properties** → **Add script property**:
-   - Property: `UPLOAD_PIN`
-   - Value: PIN rahasia, misalnya 6–8 digit. Bagikan hanya ke petugas.
-4. Klik **Deploy → New deployment** → ikon ⚙ → **Web app**:
-   - *Execute as*: **Me**
-   - *Who has access*: **Anyone**
-   - Klik **Deploy** → **Authorize access** → pilih akun → *Advanced* → *Go to … (unsafe)* → **Allow**. Peringatan ini normal untuk script buatan sendiri.
-5. Salin **Web app URL** (berakhiran `/exec`), lalu tempel ke `js/config.js`:
-   ```js
-   driveUploadUrl: 'https://script.google.com/macros/s/AKfy..../exec',
-   ```
-6. Upload ulang `js/config.js` ke GitHub. Di aplikasi, centang **☁️ Simpan otomatis ke Google Drive**. Saat pertama mengekspor, petugas diminta mengisi PIN satu kali per tab browser.
-
-Nama file di Drive: `JUDUL PETA_2026-11-19_101500.jpg`. Kalau PIN diganti di Script Properties, PIN lama langsung tidak berlaku. Kalau isi `Code.gs` diubah, buat **Deploy → Manage deployments → Edit → New version**.
-
 ## Keamanan
 
 Yang sudah diterapkan di kode:
 
-- **Tidak ada password, PIN, atau kunci API di kode publik.** PIN upload hanya tersimpan di Script Properties Apps Script, yang hanya bisa dilihat pemilik akun.
-- **Folder tujuan dikunci di server** (`Code.gs`), tidak bisa diganti dari browser.
-- Apps Script hanya menerima PNG/JPEG/PDF yang **dicek dari isi file**, dengan batas ukuran 45 MB, maks. 60 unggahan per 10 menit, dan penguncian otomatis setelah 10× PIN salah. Script hanya bisa membuat file baru, tidak bisa membaca atau menghapus file lain di Drive.
-- **Content Security Policy**: browser hanya menjalankan skrip dari situs ini sendiri. Skrip sisipan atau skrip dari situs lain diblokir, dan koneksi keluar dibatasi ke layanan peta (Esri, OpenStreetMap/Overpass) dan Google Apps Script.
+- **Tidak ada password, PIN, atau kunci API di kode.**
+- **Content Security Policy**: browser hanya menjalankan skrip dari situs ini sendiri. Skrip sisipan atau skrip dari situs lain diblokir, dan koneksi keluar dibatasi ke layanan peta (Esri, OpenStreetMap/Overpass).
 - **Anti-XSS**: semua teks dari KML/SHP/Excel/file proyek ditampilkan sebagai teks biasa (di-escape), dan file proyek (.json) divalidasi: warna, angka, huruf, dan logo diperiksa sebelum dipakai. File proyek yang sengaja dimodifikasi tidak bisa menyisipkan kode.
 - Semua library disimpan di folder `lib/` (tidak memuat dari CDN pihak ketiga), sehingga tidak bisa diganti dari luar.
 
@@ -188,9 +168,8 @@ Yang perlu dilakukan pemilik akun GitHub:
 - Aktifkan **Two-factor authentication (2FA)** di GitHub: Settings → Password and authentication. Siapa pun yang tidak punya akses akun Anda **tidak bisa mengubah** situs ini.
 - Jangan menambahkan *collaborator* sembarangan (repo → Settings → Collaborators).
 - Opsional: Settings → Branches → tambahkan *branch protection* untuk `main`.
-- Atur berbagi folder Drive: sebaiknya **bukan** "Anyone with the link", melainkan hanya akun pegawai terkait, karena hasil peta tersimpan di sana.
 
-> Catatan jujur: kode situs web statis memang selalu bisa *dilihat* siapa pun (browser harus mengunduhnya untuk menjalankannya). Yang dilindungi adalah **tidak bisa diubah** (hanya pemilik akun GitHub), **tidak bisa disisipi kode berbahaya**, dan **tidak bisa mengunggah ke Drive tanpa PIN**.
+> Catatan jujur: kode situs web statis memang selalu bisa *dilihat* siapa pun (browser harus mengunduhnya untuk menjalankannya). Yang dilindungi adalah **tidak bisa diubah** (hanya pemilik akun GitHub) dan **tidak bisa disisipi kode berbahaya**.
 
 ## Catatan
 
@@ -200,3 +179,7 @@ Yang perlu dilakukan pemilik akun GitHub:
 - Batas desa inset berasal dari ADMINISTRASIDESA_AR_25K (hanya desa di Kabupaten Ngawi) dan sudah disederhanakan agar ringan.
 - **Citra terbaru**: setiap kali dibuka, aplikasi membaca katalog rilis Esri World Imagery dan otomatis memakai **rilis paling baru**. Tanggal perekaman citra di titik tengah peta diambil dari layanan metadata Esri, lalu ditulis otomatis di kotak Sumber Data (bisa dimatikan).
 - Tidak ada citra satelit resolusi tinggi gratis yang diperbarui setiap hari. Esri memperbarui mosaiknya bertahap, sehingga tanggal perekaman di suatu lokasi bisa beberapa bulan sampai beberapa tahun lalu.
+
+## Menyimpan hasil ekspor ke Google Drive (tanpa kode)
+
+Pasang **Google Drive untuk desktop**, lalu di Chrome buka **Setelan → Download → Lokasi**, pilih folder Drive (misalnya `G:\My Drive\PETA LOKASI`), dan matikan "Tanyakan tempat menyimpan". Setiap ekspor PNG/JPG/PDF otomatis tersinkron ke Drive.
